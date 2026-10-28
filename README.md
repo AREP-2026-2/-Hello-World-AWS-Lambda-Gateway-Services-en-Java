@@ -1,12 +1,37 @@
 # Hello World: AWS Lambda & API Gateway en Java
 
-Servicio REST que calcula el cuadrado de un entero, implementado como una función **AWS Lambda** en Java y expuesto con **AWS API Gateway**.
-
-## Estructura
+Microservicio REST que recibe un entero y devuelve su cuadrado. La lógica está en Java, se despliega como una función **AWS Lambda** y se publica en internet con **AWS API Gateway**.
 
 ```
-src/main/java/co/edu/escuelaing/services/MathServices.java   # función lambda
-src/test/java/co/edu/escuelaing/services/MathServicesTest.java
+GET https://2y31wat8db.execute-api.us-east-1.amazonaws.com/Beta?value=14   →   196
+```
+
+## Autor
+
+Sebastian Albarracin
+
+## Arquitectura
+
+```
+Cliente (navegador / curl)
+        │  GET /Beta?value=14
+        ▼
+API Gateway (mathServices, REST, Regional)
+        │  Mapping template: $input.params("value")  →  14
+        ▼
+AWS Lambda (square08, Java 17)
+        │  co.edu.escuelaing.services.MathServices::square
+        ▼
+      196
+```
+
+API Gateway toma el parámetro `value` de la URL y, mediante una plantilla de mapeo, le pasa a la Lambda **solo el número** en lugar de un objeto JSON. Por eso el handler puede ser un método estático muy simple que recibe un `Integer`.
+
+## Estructura del proyecto
+
+```
+src/main/java/co/edu/escuelaing/services/MathServices.java       # lógica del servicio (handler)
+src/test/java/co/edu/escuelaing/services/MathServicesTest.java   # pruebas unitarias
 pom.xml
 ```
 
@@ -14,13 +39,16 @@ pom.xml
 package co.edu.escuelaing.services;
 
 public class MathServices {
+
     public static Integer square(Integer i) {
         return i * i;
     }
 }
 ```
 
-## Compilar
+No tiene dependencias de AWS: Lambda deserializa la entrada directamente al tipo `Integer`.
+
+## Compilación y pruebas
 
 Requisitos: JDK 17 y Maven 3.
 
@@ -28,58 +56,63 @@ Requisitos: JDK 17 y Maven 3.
 mvn package
 ```
 
-Genera `target/math-services-1.0-SNAPSHOT.jar`, que es el archivo que se sube a Lambda.
+Ejecuta las pruebas unitarias (casos positivo, negativo y cero) y genera `target/math-services-1.0-SNAPSHOT.jar`, que es el artefacto que se sube a Lambda.
 
-> **Nota:** el tutorial original usa Java 8, pero AWS Lambda ya no permite crear funciones con ese runtime. Este proyecto compila para Java 17 y usa el runtime **Java 17**.
+```
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+```
 
-## 1. Crear la función Lambda
+El proyecto compila para Java 17 porque AWS Lambda ya no permite crear funciones nuevas con el runtime Java 8.
 
-1. Consola AWS → **Lambda** → **Create function** → **Author from scratch**.
-2. Nombre: `square`. Runtime: **Java 17**.
-3. Permisos → **Use an existing role** → `LabRole` (AWS Academy).
-4. En **Code** → **Upload from** → **.zip or .jar file** → subir `target/math-services-1.0-SNAPSHOT.jar`.
-5. En **Runtime settings** → **Edit** → Handler:
-   ```
-   co.edu.escuelaing.services.MathServices::square
-   ```
-6. Pestaña **Test** → crear evento `testSquare` con el contenido `5` (solo el número, sin JSON) → **Test**. Resultado esperado: `25`.
+## Despliegue
 
-## 2. Configurar API Gateway
+### 1. Función Lambda
 
-1. Consola AWS → **API Gateway** → **REST API** → **Build** → **New API**, nombre `mathServices`, endpoint **Regional**.
-2. Sobre el recurso `/` → **Create method** → **GET** → integración **Lambda function** → seleccionar `square`.
-3. **Method request** → **URL query string parameters** → agregar `value` (marcar *Required*).
-4. **Integration request** → **Edit**:
-   - Desactivar *Lambda proxy integration*.
-   - **URL query string parameters**: nombre `value`, mapeado desde `method.request.querystring.value`.
-   - **Mapping templates** → Content type `application/json` → plantilla:
-     ```
-     $input.params("value")
-     ```
-5. Pestaña **Test** → query string `value=14` → resultado esperado `196`.
-6. **Deploy API** → **New stage** → nombre `Beta`.
-7. Invocar la URL del stage:
-   ```
-   https://<api-id>.execute-api.us-east-1.amazonaws.com/Beta?value=14
-   ```
-   Respuesta: `196`.
+| Configuración | Valor |
+|---------------|-------|
+| Nombre | `square08` |
+| Runtime | Java 17 |
+| Rol de ejecución | `LabRole` (AWS Academy) |
+| Código | `math-services-1.0-SNAPSHOT.jar` |
+| Handler | `co.edu.escuelaing.services.MathServices::square` |
 
-## 3. Limpieza
+Probé la función con un evento de prueba (`testSquare`) cuyo contenido es solo el número `5`, sin JSON, y la respuesta fue `25`.
 
-Al terminar, borrar la función Lambda `square` y el API `mathServices` para no generar costos.
+### 2. API Gateway
+
+| Configuración | Valor |
+|---------------|-------|
+| API | `mathServices` (REST, endpoint Regional) |
+| Método | `GET` sobre `/`, integración Lambda con `square08` (sin proxy) |
+| Method request | Query string `value` (requerido) |
+| Integration request | `value` ← `method.request.querystring.value` |
+| Mapping template (`application/json`) | `$input.params("value")` |
+| Stage | `Beta` |
+
+La plantilla de mapeo extrae el parámetro `value` de la URL y se lo pasa a la Lambda como un número, sin envolverlo en JSON. En la consola, la prueba del método con `value=14` devolvió estado `200` y cuerpo `196`. Por último desplegué el API en el stage `Beta` y lo invoqué desde el navegador:
+
+```
+https://2y31wat8db.execute-api.us-east-1.amazonaws.com/Beta?value=14
+```
+
+Respuesta: `196`.
+
+### 3. Limpieza
+
+Después de las pruebas eliminé la función Lambda `square08` y el API `mathServices` para no generar costos.
 
 ## Evidencias
-
-<!-- Agregar capturas en la carpeta images/ -->
 
 | Paso | Captura |
 |------|---------|
 | Función Lambda creada | ![](images/lambda.png) |
 | Test de Lambda con `5` → `25` | ![](images/lambda-test.png) |
 | Método GET en API Gateway | ![](images/gateway-method.png) |
-| Test en API Gateway con `value=14` | ![](images/gateway-test.png) |
+| Test en API Gateway con `value=14` → `196` | ![](images/gateway-test.png) |
 | Invocación desde el navegador | ![](images/browser.png) |
 
-## Autor
+## Conclusiones
 
-Sebastian Albarracin
+- Con Lambda y API Gateway se puede publicar un microservicio sin administrar servidores: solo se sube el código y se configura cómo llega la petición.
+- Las plantillas de mapeo de API Gateway definen exactamente qué recibe la función. En este caso se envía un único valor, pero en servicios reales lo normal es enviar objetos JSON que Lambda convierte a POJOs.
+- En Java, la entrada y la salida del handler pueden ser tipos primitivos o `String`, eventos predefinidos de `aws-lambda-java-events` (por ejemplo `S3Event`) o POJOs propios, que Lambda serializa y deserializa automáticamente.
